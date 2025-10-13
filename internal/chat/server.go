@@ -29,6 +29,7 @@ func NewServer(repo *model.Repository, assist Assistant) *Server {
 }
 
 func (s *Server) StartConversation(ctx context.Context, req *pb.StartConversationRequest) (*pb.StartConversationResponse, error) {
+	startTime := time.Now()
 	conversation := &model.Conversation{
 		ID:        primitive.NewObjectID(),
 		Title:     "Untitled conversation",
@@ -47,19 +48,29 @@ func (s *Server) StartConversation(ctx context.Context, req *pb.StartConversatio
 		return nil, twirp.RequiredArgumentError("message")
 	}
 
-	// choose a title
+	titleStart := time.Now()
 	title, err := s.assist.Title(ctx, conversation)
+	titleDuration := time.Since(titleStart)
+	
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to generate conversation title", "error", err)
 	} else {
 		conversation.Title = title
 	}
 
-	// generate a reply
+	replyStart := time.Now()
 	reply, err := s.assist.Reply(ctx, conversation)
+	replyDuration := time.Since(replyStart)
+	
 	if err != nil {
 		return nil, err
 	}
+
+	totalDuration := time.Since(startTime)
+	slog.InfoContext(ctx, "StartConversation timing (SEQUENTIAL)",
+		"title_ms", titleDuration.Milliseconds(),
+		"reply_ms", replyDuration.Milliseconds(),
+		"total_ms", totalDuration.Milliseconds())
 
 	conversation.Messages = append(conversation.Messages, &model.Message{
 		ID:        primitive.NewObjectID(),
