@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,11 +36,10 @@ func (a *Assistant) Title(ctx context.Context, conv *model.Conversation) (string
 	systemPrompt := "Return ONLY a concise 2–6 word title summarizing the user’s question. Do not answer the question. No punctuation or emojis. Max 80 chars."
 	userMessage := conv.Messages[0].Content
 
-
- // Logging the system prompt and user message
-	slog.InfoContext(ctx, "API Request", 
-	"system_prompt", systemPrompt, 
-	"user_message", userMessage)
+	// Logging the system prompt and user message
+	slog.InfoContext(ctx, "API Request",
+		"system_prompt", systemPrompt,
+		"user_message", userMessage)
 
 	msgs := []openai.ChatCompletionMessageParamUnion{
 		openai.SystemMessage(systemPrompt),
@@ -110,6 +113,24 @@ func (a *Assistant) Reply(ctx context.Context, conv *model.Conversation) (string
 					},
 				}),
 				openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
+					Name:        "get_weather_forecast",
+					Description: openai.String("Get forecast for the given location"),
+					Parameters: openai.FunctionParameters{
+						"type": "object",
+						"properties": map[string]any{
+							"location": map[string]string{
+								"type": "string",
+							},
+							"days": map[string]any{
+								"type":    "integer",
+								"minimum": 1,
+								"maximum": 7,
+							},
+						},
+						"required": []string{"location"},
+					},
+				}),
+				openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 					Name:        "get_today_date",
 					Description: openai.String("Get today's date and time in RFC3339 format"),
 				}),
@@ -153,7 +174,120 @@ func (a *Assistant) Reply(ctx context.Context, conv *model.Conversation) (string
 
 				switch call.Function.Name {
 				case "get_weather":
-					msgs = append(msgs, openai.ToolMessage("weather is fine", call.ID))
+					var payload struct {
+						Location string `json:"location"`
+					}
+					if err := json.Unmarshal([]byte(call.Function.Arguments), &payload); err != nil {
+						msgs = append(msgs, openai.ToolMessage("failed to parse tool call arguments: "+err.Error(), call.ID))
+						break
+					}
+
+					// Resolve location: payload -> parse last user message -> env default
+					resolvedLocation := strings.TrimSpace(payload.Location)
+					if resolvedLocation == "" {
+						// try to parse "weather in X" from last user message
+						for i := len(conv.Messages) - 1; i >= 0; i-- {
+							if conv.Messages[i].Role == model.RoleUser {
+								re := regexp.MustCompile(`(?i)weather\s+in\s+([^?.!]+)`) // naive extraction
+								if m := re.FindStringSubmatch(conv.Messages[i].Content); len(m) == 2 {
+									resolvedLocation = strings.TrimSpace(m[1])
+									break
+								}
+							}
+						}
+					}
+					if resolvedLocation == "" {
+						resolvedLocation = os.Getenv("WEATHER_DEFAULT_LOCATION")
+					}
+					if resolvedLocation == "" {
+						msgs = append(msgs, openai.ToolMessage("weather lookup failed: please provide a location (e.g., 'weather in Paris')", call.ID))
+						break
+					}
+
+					apiKey := os.Getenv("WEATHER_API_KEY")
+					httpClient := &http.Client{Timeout: 5 * time.Second}
+					cw, err := FetchCurrentWeather(ctx, httpClient, apiKey, resolvedLocation)
+					if err != nil {
+						slog.ErrorContext(ctx, "FetchCurrentWeather failed", "error", err)
+						msgs = append(msgs, openai.ToolMessage("weather lookup failed: "+err.Error(), call.ID))
+						break
+					}
+					name := cw.Location
+					if name == "" {
+						name = resolvedLocation
+					}
+					result := fmt.Sprintf("%s: %.0f°C, %s. Feels %.0f°C. Wind %.0f kph. Humidity %d%%", name, cw.TempC, cw.Condition, cw.FeelsLikeC, cw.WindKph, cw.Humidity)
+					msgs = append(msgs, openai.ToolMessage(result, call.ID))
+				case "get_weather_forecast":
+					var payload struct {
+						Location string `json:"location"`
+						Days     int    `json:"days"`
+					}
+					if err := json.Unmarshal([]byte(call.Function.Arguments), &payload); err != nil {
+						msgs = append(msgs, openai.ToolMessage("failed to parse tool call arguments: "+err.Error(), call.ID))
+						break
+					}
+
+					resolvedLocation := strings.TrimSpace(payload.Location)
+					if resolvedLocation == "" {
+						for i := len(conv.Messages) - 1; i >= 0; i-- {
+							if conv.Messages[i].Role == model.RoleUser {
+								// try to catch phrases like "forecast for X" or "X forecast"
+								re := regexp.MustCompile(`(?i)(?:forecast\s+(?:for\s+)?)?in\s+([^?.!]+)|(?i)([^?.!]+)\s+forecast`)
+								if m := re.FindStringSubmatch(conv.Messages[i].Content); len(m) >= 2 {
+									cand := strings.TrimSpace(m[1])
+									if cand == "" && len(m) >= 3 {
+										cand = strings.TrimSpace(m[2])
+									}
+									if cand != "" {
+										resolvedLocation = cand
+										break
+									}
+								}
+							}
+						}
+					}
+					if resolvedLocation == "" {
+						resolvedLocation = os.Getenv("WEATHER_DEFAULT_LOCATION")
+					}
+					if resolvedLocation == "" {
+						msgs = append(msgs, openai.ToolMessage("forecast lookup failed: please provide a location (e.g., '3-day forecast for Barcelona')", call.ID))
+						break
+					}
+
+					days := payload.Days
+					if days <= 0 {
+						if v := strings.TrimSpace(os.Getenv("WEATHER_FORECAST_DAYS")); v != "" {
+							if n, err := strconv.Atoi(v); err == nil {
+								days = n
+							}
+						}
+						if days <= 0 {
+							days = 3
+						}
+					}
+					if days < 1 {
+						days = 1
+					}
+					if days > 7 {
+						days = 7
+					}
+
+					apiKey := os.Getenv("WEATHER_API_KEY")
+					httpClient := &http.Client{Timeout: 5 * time.Second}
+					fds, err := FetchForecast(ctx, httpClient, apiKey, resolvedLocation, days)
+					if err != nil {
+						slog.ErrorContext(ctx, "FetchForecast failed", "error", err)
+						msgs = append(msgs, openai.ToolMessage("forecast lookup failed: "+err.Error(), call.ID))
+						break
+					}
+					// Build a concise multi-line summary
+					lines := make([]string, 0, len(fds)+1)
+					lines = append(lines, fmt.Sprintf("%s forecast (%d day%s):", resolvedLocation, len(fds), map[bool]string{true: "s", false: ""}[len(fds) != 1]))
+					for _, d := range fds {
+						lines = append(lines, fmt.Sprintf("%s: %s, %.0f–%.0f°C, rain %d%%", d.Date, d.Condition, d.MinC, d.MaxC, d.ChanceOfRain))
+					}
+					msgs = append(msgs, openai.ToolMessage(strings.Join(lines, "\n"), call.ID))
 				case "get_today_date":
 					msgs = append(msgs, openai.ToolMessage(time.Now().Format(time.RFC3339), call.ID))
 				case "get_holidays":
