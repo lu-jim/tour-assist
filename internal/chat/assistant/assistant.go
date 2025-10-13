@@ -29,20 +29,31 @@ func (a *Assistant) Title(ctx context.Context, conv *model.Conversation) (string
 
 	slog.InfoContext(ctx, "Generating title for conversation", "conversation_id", conv.ID)
 
-	msgs := make([]openai.ChatCompletionMessageParamUnion, len(conv.Messages))
+	systemPrompt := "Return ONLY a concise 2–6 word title summarizing the user’s question. Do not answer the question. No punctuation or emojis. Max 80 chars."
+	userMessage := conv.Messages[0].Content
 
-	msgs[0] = openai.AssistantMessage("Generate a concise, descriptive title for the conversation based on the user message. The title should be a single line, no more than 80 characters, and should not include any special characters or emojis.")
-	for i, m := range conv.Messages {
-		msgs[i] = openai.UserMessage(m.Content)
+
+ // Logging the system prompt and user message
+	slog.InfoContext(ctx, "API Request", 
+	"system_prompt", systemPrompt, 
+	"user_message", userMessage)
+
+	msgs := []openai.ChatCompletionMessageParamUnion{
+		openai.SystemMessage(systemPrompt),
+		openai.UserMessage(userMessage),
 	}
 
 	resp, err := a.cli.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:    openai.ChatModelO1,
+		Model:    openai.ChatModelO4Mini2025_04_16,
 		Messages: msgs,
 	})
 
 	if err != nil {
 		return "", err
+	}
+
+	if len(resp.Choices) > 0 {
+		slog.InfoContext(ctx, "Title API Request", "raw_title", resp.Choices[0].Message.Content)
 	}
 
 	if len(resp.Choices) == 0 || strings.TrimSpace(resp.Choices[0].Message.Content) == "" {
