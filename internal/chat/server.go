@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/acai-travel/tech-challenge/internal/chat/model"
@@ -48,29 +49,52 @@ func (s *Server) StartConversation(ctx context.Context, req *pb.StartConversatio
 		return nil, twirp.RequiredArgumentError("message")
 	}
 
-	titleStart := time.Now()
-	title, err := s.assist.Title(ctx, conversation)
-	titleDuration := time.Since(titleStart)
-	
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to generate conversation title", "error", err)
-	} else {
-		conversation.Title = title
-	}
+	// Variables to capture results from goroutines
+	var title string
+	var titleErr error
+	var titleDuration time.Duration
+	var reply string
+	var replyErr error
+	var replyDuration time.Duration
 
-	replyStart := time.Now()
-	reply, err := s.assist.Reply(ctx, conversation)
-	replyDuration := time.Since(replyStart)
-	
-	if err != nil {
-		return nil, err
-	}
+	// Create WaitGroup to synchronize goroutines
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Goroutine 1: Generate title
+	go func() {
+		defer wg.Done()
+		titleStart := time.Now()
+		title, titleErr = s.assist.Title(ctx, conversation)
+		titleDuration = time.Since(titleStart)
+	}()
+
+	// Goroutine 2: Generate reply
+	go func() {
+		defer wg.Done()
+		replyStart := time.Now()
+		reply, replyErr = s.assist.Reply(ctx, conversation)
+		replyDuration = time.Since(replyStart)
+	}()
+
+	wg.Wait()
 
 	totalDuration := time.Since(startTime)
-	slog.InfoContext(ctx, "StartConversation timing (SEQUENTIAL)",
+	slog.InfoContext(ctx, "StartConversation timing",
 		"title_ms", titleDuration.Milliseconds(),
 		"reply_ms", replyDuration.Milliseconds(),
 		"total_ms", totalDuration.Milliseconds())
+
+	if replyErr != nil {
+		return nil, replyErr
+	}
+
+	if titleErr != nil {
+		slog.ErrorContext(ctx, "Failed to generate conversation title", "error", titleErr)
+		conversation.Title = "Untitled conversation"
+	} else {
+		conversation.Title = title
+	}
 
 	conversation.Messages = append(conversation.Messages, &model.Message{
 		ID:        primitive.NewObjectID(),
