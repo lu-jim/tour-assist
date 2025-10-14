@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/acai-travel/tech-challenge/internal/pb"
@@ -67,17 +68,25 @@ func main() {
 
 		for {
 			fmt.Printf("USER:\n")
-			line, _, err := reader.ReadLine()
-			if err != nil {
-				fmt.Printf("Error reading input: %v\n", err)
-				os.Exit(1)
+			var buf []byte
+			for {
+				part, isPrefix, err := reader.ReadLine()
+				if err != nil {
+					fmt.Printf("Error reading input: %v\n", err)
+					os.Exit(1)
+				}
+				buf = append(buf, part...)
+				if !isPrefix {
+					break
+				}
 			}
+			message := strings.ToValidUTF8(string(buf), "")
 
 			fmt.Println()
 
 			if cid == "" {
 				out, err := cli.StartConversation(ctx, &pb.StartConversationRequest{
-					Message: string(line),
+					Message: message,
 				})
 
 				if err != nil {
@@ -97,7 +106,7 @@ func main() {
 
 			out, err := cli.ContinueConversation(ctx, &pb.ContinueConversationRequest{
 				ConversationId: cid,
-				Message:        string(line),
+				Message:        message,
 			})
 
 			if err != nil {
