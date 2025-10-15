@@ -57,6 +57,10 @@ func (s *Server) StartConversation(ctx context.Context, req *pb.StartConversatio
 	var replyErr error
 	var replyDuration time.Duration
 
+	// Create a cancellable context for coordinating the goroutines
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// Create WaitGroup to synchronize goroutines
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -64,17 +68,39 @@ func (s *Server) StartConversation(ctx context.Context, req *pb.StartConversatio
 	// Goroutine 1: Generate title
 	go func() {
 		defer wg.Done()
+		// Check if context is already cancelled
+		if ctx.Err() != nil {
+			titleErr = ctx.Err()
+			return
+		}
+
 		titleStart := time.Now()
 		title, titleErr = s.assist.Title(ctx, conversation)
 		titleDuration = time.Since(titleStart)
+
+		// Cancel the other goroutine on error
+		if titleErr != nil {
+			cancel()
+		}
 	}()
 
 	// Goroutine 2: Generate reply
 	go func() {
 		defer wg.Done()
+		// Check if context is already cancelled
+		if ctx.Err() != nil {
+			replyErr = ctx.Err()
+			return
+		}
+
 		replyStart := time.Now()
 		reply, replyErr = s.assist.Reply(ctx, conversation)
 		replyDuration = time.Since(replyStart)
+
+		// Cancel the other goroutine on error
+		if replyErr != nil {
+			cancel()
+		}
 	}()
 
 	wg.Wait()
