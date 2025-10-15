@@ -12,15 +12,29 @@ import (
 )
 
 type Assistant struct {
-	cli          openai.Client
-	toolRegistry *tools.Registry
+	cli           openai.Client
+	buildRegistry func(conv *model.Conversation) *tools.Registry
 }
 
 func New() *Assistant {
-	registry := tools.NewRegistry()
 	return &Assistant{
-		cli:          openai.NewClient(),
-		toolRegistry: registry,
+		cli: openai.NewClient(),
+		buildRegistry: func(conv *model.Conversation) *tools.Registry {
+			r := tools.NewRegistry()
+			r.Register(tools.NewGetWeatherTool(conv))
+			r.Register(tools.NewGetWeatherForecastTool(conv))
+			r.Register(tools.NewGetTodayDateTool())
+			r.Register(tools.NewGetHolidaysTool())
+			return r
+		},
+	}
+}
+
+// NewWithRegistryFactory allows injecting a custom per-conversation registry builder.
+func NewWithRegistryFactory(build func(*model.Conversation) *tools.Registry) *Assistant {
+	return &Assistant{
+		cli:           openai.NewClient(),
+		buildRegistry: build,
 	}
 }
 
@@ -53,9 +67,11 @@ func (a *Assistant) Title(ctx context.Context, conv *model.Conversation) (string
 		return "", err
 	}
 
-	if len(resp.Choices) > 0 {
-		slog.InfoContext(ctx, "Title API Request", "raw_title", resp.Choices[0].Message.Content)
+	if len(resp.Choices) == 0 || strings.TrimSpace(resp.Choices[0].Message.Content) == "" {
+		return "", errors.New("empty response from OpenAI for title generation")
 	}
+
+	slog.InfoContext(ctx, "Title API Response", "raw_title", resp.Choices[0].Message.Content)
 
 	if len(resp.Choices) == 0 || strings.TrimSpace(resp.Choices[0].Message.Content) == "" {
 		return "", errors.New("empty response from OpenAI for title generation")
@@ -79,12 +95,8 @@ func (a *Assistant) Reply(ctx context.Context, conv *model.Conversation) (string
 
 	slog.InfoContext(ctx, "Generating reply for conversation", "conversation_id", conv.ID)
 
-	// Register tools for this conversation
-	registry := tools.NewRegistry()
-	registry.Register(tools.NewGetWeatherTool(conv))
-	registry.Register(tools.NewGetWeatherForecastTool(conv))
-	registry.Register(tools.NewGetTodayDateTool())
-	registry.Register(tools.NewGetHolidaysTool())
+	// Build a per-conversation registry
+	registry := a.buildRegistry(conv)
 
 	msgs := []openai.ChatCompletionMessageParamUnion{
 		openai.SystemMessage("You are a helpful, concise AI assistant. Provide accurate, safe, and clear responses."),
