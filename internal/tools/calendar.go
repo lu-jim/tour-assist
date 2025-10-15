@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -101,6 +102,21 @@ func (t *GetHolidaysTool) Execute(ctx context.Context, args json.RawMessage) (st
 		return "", fmt.Errorf("failed to load holiday events: %w", err)
 	}
 
+	// Pre-collect dates and sort to ensure deterministic order
+	type datedEvent struct {
+		evt  *ics.VEvent
+		date time.Time
+	}
+	var datedEvents []datedEvent
+	for _, ev := range events {
+		d, err := ev.GetAllDayStartAt()
+		if err != nil {
+			continue
+		}
+		datedEvents = append(datedEvents, datedEvent{evt: ev, date: d})
+	}
+	sort.Slice(datedEvents, func(i, j int) bool { return datedEvents[i].date.Before(datedEvents[j].date) })
+
 	var payload struct {
 		BeforeDate time.Time `json:"before_date,omitempty"`
 		AfterDate  time.Time `json:"after_date,omitempty"`
@@ -112,15 +128,12 @@ func (t *GetHolidaysTool) Execute(ctx context.Context, args json.RawMessage) (st
 	}
 
 	var holidays []string
-	for _, event := range events {
-		date, err := event.GetAllDayStartAt()
-		if err != nil {
-			continue
-		}
-
+	for _, item := range datedEvents {
 		if payload.MaxCount > 0 && len(holidays) >= payload.MaxCount {
 			break
 		}
+
+		date := item.date
 
 		if !payload.BeforeDate.IsZero() && date.After(payload.BeforeDate) {
 			continue
@@ -130,7 +143,9 @@ func (t *GetHolidaysTool) Execute(ctx context.Context, args json.RawMessage) (st
 			continue
 		}
 
-		holidays = append(holidays, date.Format(time.DateOnly)+": "+event.GetProperty(ics.ComponentPropertySummary).Value)
+		if p := item.evt.GetProperty(ics.ComponentPropertySummary); p != nil {
+			holidays = append(holidays, date.Format(time.DateOnly)+": "+p.Value)
+		}
 	}
 
 	return strings.Join(holidays, "\n"), nil
