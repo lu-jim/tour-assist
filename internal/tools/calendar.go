@@ -143,9 +143,11 @@ func (t *GetHolidaysTool) Execute(ctx context.Context, args json.RawMessage) (st
 			continue
 		}
 
+		summary := "No summary"
 		if p := item.evt.GetProperty(ics.ComponentPropertySummary); p != nil {
-			holidays = append(holidays, date.Format(time.DateOnly)+": "+p.Value)
+			summary = p.Value
 		}
+		holidays = append(holidays, date.Format(time.DateOnly)+": "+summary)
 	}
 
 	return strings.Join(holidays, "\n"), nil
