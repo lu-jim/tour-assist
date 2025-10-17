@@ -1,7 +1,6 @@
 package httpx
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,13 +14,13 @@ const meterName = "github.com/acai-travel/tech-challenge/internal/httpx"
 
 // metricsMiddleware holds the OpenTelemetry metrics instruments
 type metricsMiddleware struct {
-	requestCounter   metric.Int64Counter
-	requestDuration  metric.Float64Histogram
-	errorCounter     metric.Int64Counter
+	requestCounter  metric.Int64Counter
+	requestDuration metric.Float64Histogram
+	errorCounter    metric.Int64Counter
 }
 
 // newMetricsMiddleware creates a new metrics middleware with initialized instruments
-func newMetricsMiddleware(ctx context.Context) (*metricsMiddleware, error) {
+func newMetricsMiddleware() (*metricsMiddleware, error) {
 	meter := otel.Meter(meterName)
 
 	requestCounter, err := meter.Int64Counter(
@@ -61,7 +60,7 @@ func newMetricsMiddleware(ctx context.Context) (*metricsMiddleware, error) {
 // Metrics returns a middleware that captures HTTP request metrics
 func Metrics() func(handler http.Handler) http.Handler {
 	// Initialize metrics middleware
-	mm, err := newMetricsMiddleware(context.Background())
+	mm, err := newMetricsMiddleware()
 	if err != nil {
 		// If we can't initialize metrics, return a no-op middleware
 		// This prevents the application from failing if metrics setup fails
@@ -108,4 +107,3 @@ func Metrics() func(handler http.Handler) http.Handler {
 		})
 	}
 }
-
