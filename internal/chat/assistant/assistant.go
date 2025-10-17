@@ -202,26 +202,13 @@ func (a *Assistant) Reply(ctx context.Context, conv *model.Conversation) (string
 			for _, call := range message.ToolCalls {
 				slog.InfoContext(ctx, "Tool call received", "name", call.Function.Name, "args", call.Function.Arguments)
 
-				// Create a span for each tool execution
-				_, toolSpan := tracer.Start(ctx, "Tool.Execute",
-					trace.WithAttributes(
-						attribute.String("tool.name", call.Function.Name),
-						attribute.String("tool.arguments", call.Function.Arguments),
-					),
-				)
-
 				result, err := registry.Execute(ctx, call.Function.Name, []byte(call.Function.Arguments))
 				if err != nil {
 					slog.ErrorContext(ctx, "Tool execution failed", "tool", call.Function.Name, "error", err)
-					toolSpan.RecordError(err)
-					toolSpan.SetStatus(codes.Error, "tool execution failed")
 					msgs = append(msgs, openai.ToolMessage(err.Error(), call.ID))
 				} else {
-					toolSpan.SetAttributes(attribute.String("tool.result", result))
-					toolSpan.SetStatus(codes.Ok, "tool executed successfully")
 					msgs = append(msgs, openai.ToolMessage(result, call.ID))
 				}
-				toolSpan.End()
 			}
 
 			continue

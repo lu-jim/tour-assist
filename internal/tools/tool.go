@@ -5,8 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/openai/openai-go/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Tool represents a capability that the AI assistant can use to perform actions
@@ -20,6 +26,50 @@ type Tool interface {
 	Definition() openai.ChatCompletionToolUnionParam
 
 	Execute(ctx context.Context, args json.RawMessage) (string, error)
+}
+
+const (
+	meterName  = "github.com/acai-travel/tech-challenge/internal/tools"
+	tracerName = "github.com/acai-travel/tech-challenge/internal/tools"
+)
+
+var (
+	executionCounter  metric.Int64Counter
+	durationHistogram metric.Float64Histogram
+	errorCounter      metric.Int64Counter
+)
+
+func init() {
+	meter := otel.Meter(meterName)
+
+	var err error
+	executionCounter, err = meter.Int64Counter(
+		"tool.execution.count",
+		metric.WithDescription("Total number of tool executions"),
+		metric.WithUnit("{execution}"),
+	)
+	if err != nil {
+		// If metric creation fails, the counter will be nil and won't record anything
+		// This prevents the application from failing if metrics setup fails
+	}
+
+	durationHistogram, err = meter.Float64Histogram(
+		"tool.execution.duration",
+		metric.WithDescription("Duration of tool executions in milliseconds"),
+		metric.WithUnit("ms"),
+	)
+	if err != nil {
+		// If metric creation fails, the histogram will be nil and won't record anything
+	}
+
+	errorCounter, err = meter.Int64Counter(
+		"tool.execution.errors",
+		metric.WithDescription("Total number of tool execution errors"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		// If metric creation fails, the counter will be nil and won't record anything
+	}
 }
 
 // Registry manages a collection of tools and provides methods to register,
@@ -65,13 +115,79 @@ func (r *Registry) Definitions() []openai.ChatCompletionToolUnionParam {
 // Execute runs a tool by name with the provided arguments. Returns an error if the tool
 // is not found or if execution fails.
 func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	// Get tracer and start span
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "Tool."+name,
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("tool.name", name),
+		),
+	)
+	defer span.End()
+
+	// Record start time for metrics
+	startTime := time.Now()
+
+	// Get tool
 	r.mu.RLock()
 	tool, ok := r.tools[name]
 	r.mu.RUnlock()
+
 	if !ok {
-		return "", fmt.Errorf("unknown tool: %s", name)
+		err := fmt.Errorf("unknown tool: %s", name)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "tool not found")
+
+		// Record error metric
+		if errorCounter != nil {
+			errorCounter.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("tool.name", name),
+				attribute.String("error.type", "not_found"),
+			))
+		}
+
+		return "", err
 	}
-	return tool.Execute(ctx, args)
+
+	// Execute tool
+	result, err := tool.Execute(ctx, args)
+
+	// Calculate duration
+	duration := float64(time.Since(startTime).Milliseconds())
+
+	// Prepare common attributes
+	attrs := []attribute.KeyValue{
+		attribute.String("tool.name", name),
+	}
+
+	// Record metrics and span status
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "tool execution failed")
+
+		// Increment error counter
+		if errorCounter != nil {
+			errorCounter.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("tool.name", name),
+				attribute.String("error.type", "execution_failed"),
+			))
+		}
+	} else {
+		span.SetAttributes(attribute.Int("tool.result.length", len(result)))
+		span.SetStatus(codes.Ok, "success")
+	}
+
+	// Record execution count
+	if executionCounter != nil {
+		executionCounter.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
+
+	// Record execution duration
+	if durationHistogram != nil {
+		durationHistogram.Record(ctx, duration, metric.WithAttributes(attrs...))
+	}
+
+	return result, err
 }
 
 // List returns the names of all registered tools
