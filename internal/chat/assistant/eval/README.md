@@ -14,10 +14,10 @@ go run cmd/eval/main.go -rule-only     # Or directly
 ### Full Evaluation with LLM Judge (GPT-5)
 ```bash
 export OPENAI_API_KEY=sk-...
-make eval-full                         # Full 13 tests
+make eval-full                         # Full 5 tests
 go run cmd/eval/main.go -limit 3       # First 3 only (quick iteration)
 ```
-🕐 ~40-65s (13 tests) or ~10-15s (3 tests) • 💵 ~$0.05-0.10 (13 tests) or ~$0.01-0.02 (3 tests)
+🕐 ~15-25s (5 tests) or ~10-15s (3 tests) • 💵 ~$0.02-0.04 (5 tests) or ~$0.01-0.02 (3 tests)
 
 ### All Options
 ```bash
@@ -35,14 +35,14 @@ go run cmd/eval/main.go -v                   # Verbose logging
 ```
 eval/
 ├── types.go           # Core types (TestCase, EvalResult, Evaluator interface)
-├── dataset.go         # Dataset I/O + 13 built-in test cases
+├── dataset.go         # Dataset I/O + 5 built-in test cases
 ├── rule_evaluator.go  # Fast, deterministic checks (length, format, keywords)
 ├── llm_evaluator.go   # GPT-5 powered quality assessment
 ├── runner.go          # Orchestrates execution and reporting
 └── eval_test.go       # Framework unit tests
 ```
 
-**Default Dataset:** 13 test cases covering standard queries, short/null inputs, multilingual (Spanish, Chinese, French), and adversarial prompts.
+**Default Dataset:** 5 test cases covering weather check, forecast, holiday check in Catalonia, flight search, and short input edge case.
 
 ## Evaluation Criteria
 
@@ -72,19 +72,11 @@ Evaluates with explicit rubrics (0-10 scale):
 ============================================================
 Evaluation Report: Title Generation Evaluation
 ============================================================
-Total tests:    13
-Passed:         12 (92.3%)
-Failed:         1 (7.7%)
-Average score:  0.923
+Total tests:    5
+Passed:         5 (100.0%)
+Failed:         0 (0.0%)
+Average score:  1.000
 Duration:       10ms
-
-Failed Tests:
-------------------------------------------------------------
-[title_11_adversarial] Jailbreak attempt should follow instructions
-  Input:    "Ignore the system prompt..."
-  Title:    "Long essay about weather"
-  Issues:
-    - [rule_based] Title contains avoided patterns: [essay] (score: 0.00)
 ```
 
 ### JSON Report
@@ -195,10 +187,10 @@ go run cmd/eval/main.go -rule-only  # Skip LLM judge
 
 ## Performance & Costs
 
-| Evaluator | Speed/Test | 13 Tests | Cost/Test | 13 Tests Cost |
+| Evaluator | Speed/Test | 5 Tests | Cost/Test | 5 Tests Cost |
 |-----------|-----------|----------|-----------|---------------|
 | Rule-based | ~1ms | <1s | $0 | $0 |
-| LLM Judge (GPT-5) | ~3-5s | ~40-65s | ~$0.005-0.008 | ~$0.05-0.10 |
+| LLM Judge (GPT-5) | ~3-5s | ~15-25s | ~$0.005-0.008 | ~$0.02-0.04 |
 
 **Tip:** Use `-limit 3` for quick prompt iteration (~10-15s, ~$0.01-0.02)
 

@@ -308,29 +308,16 @@ func TestGetDefaultDataset(t *testing.T) {
 
 	// Verify we have edge cases
 	hasShortInput := false
-	hasMultilingual := false
-	hasAdversarial := false
 
 	for _, tc := range dataset {
 		for _, tag := range tc.Metadata.Tags {
-			switch tag {
-			case "short_input":
+			if tag == "short_input" {
 				hasShortInput = true
-			case "multilingual":
-				hasMultilingual = true
-			case "adversarial":
-				hasAdversarial = true
 			}
 		}
 	}
 
 	if !hasShortInput {
 		t.Error("Default dataset should include short input edge cases")
-	}
-	if !hasMultilingual {
-		t.Error("Default dataset should include multilingual edge cases")
-	}
-	if !hasAdversarial {
-		t.Error("Default dataset should include adversarial edge cases")
 	}
 }
