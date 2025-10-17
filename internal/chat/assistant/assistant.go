@@ -29,6 +29,7 @@ func New() *Assistant {
 			r.Register(tools.NewGetWeatherForecastTool(conv))
 			r.Register(tools.NewGetTodayDateTool())
 			r.Register(tools.NewGetHolidaysTool())
+			r.Register(tools.NewGetFlightPricesTool(conv))
 			return r
 		},
 	}
@@ -80,7 +81,7 @@ func (a *Assistant) Title(ctx context.Context, conv *model.Conversation) (string
 	)
 
 	resp, err := a.cli.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:    openai.ChatModelGPT5Mini,
+		Model:    openai.ChatModelGPT5,
 		Messages: msgs,
 	})
 
@@ -145,7 +146,7 @@ func (a *Assistant) Reply(ctx context.Context, conv *model.Conversation) (string
 	registry := a.buildRegistry(conv)
 
 	msgs := []openai.ChatCompletionMessageParamUnion{
-		openai.SystemMessage("You are a helpful, concise AI assistant. Provide accurate, safe, and clear responses."),
+		openai.SystemMessage("You are a helpful, concise AI assistant. Provide accurate, safe, and clear responses. For time-sensitive queries (flights, weather forecasts, holidays, etc.), always use the get_today_date tool first to ensure you have the correct current date before making other API calls."),
 	}
 
 	for _, m := range conv.Messages {
