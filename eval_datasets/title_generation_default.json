@@ -1,0 +1,99 @@
+[
+  {
+    "id": "title_01",
+    "input": {
+      "message": "What is the weather like in Barcelona?"
+    },
+    "expected": {
+      "title_keywords": [
+        "weather",
+        "Barcelona"
+      ],
+      "title_max_len": 80,
+      "title_min_words": 2,
+      "title_max_words": 6
+    },
+    "metadata": {
+      "category": "weather",
+      "difficulty": "easy"
+    },
+    "description": "Weather question should generate location-based title"
+  },
+  {
+    "id": "title_02",
+    "input": {
+      "message": "I'm planning a trip to Paris next week. Can you tell me the weather forecast?"
+    },
+    "expected": {
+      "title_keywords": [
+        "Paris",
+        "forecast"
+      ],
+      "title_max_len": 80,
+      "title_min_words": 2,
+      "title_max_words": 6
+    },
+    "metadata": {
+      "category": "weather",
+      "difficulty": "medium"
+    },
+    "description": "Weather forecast should have clear title"
+  },
+  {
+    "id": "title_03",
+    "input": {
+      "message": "What are the upcoming holidays in Barcelona?"
+    },
+    "expected": {
+      "title_keywords": [
+        "holiday"
+      ],
+      "title_max_len": 80,
+      "title_min_words": 2,
+      "title_max_words": 6
+    },
+    "metadata": {
+      "category": "calendar",
+      "difficulty": "easy"
+    },
+    "description": "Holiday check in Catalonia should mention holidays"
+  },
+  {
+    "id": "title_04",
+    "input": {
+      "message": "Are there any flights from barcelona to paris for next friday?"
+    },
+    "expected": {
+      "title_keywords": [
+        "flight"
+      ],
+      "title_max_len": 80,
+      "title_min_words": 2,
+      "title_max_words": 6
+    },
+    "metadata": {
+      "category": "travel",
+      "difficulty": "easy"
+    },
+    "description": "Flight search query should generate travel-focused title"
+  },
+  {
+    "id": "title_05",
+    "input": {
+      "message": "Hi"
+    },
+    "expected": {
+      "title_max_len": 80,
+      "title_min_words": 1,
+      "title_max_words": 6
+    },
+    "metadata": {
+      "category": "edge_case",
+      "difficulty": "easy",
+      "tags": [
+        "short_input"
+      ]
+    },
+    "description": "Very short greeting should generate appropriate title"
+  }
+]
