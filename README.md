@@ -1,4 +1,4 @@
-# Travel Assist
+# Tour Assist
 
 ![](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white) ![](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white) ![](https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=white)
 
